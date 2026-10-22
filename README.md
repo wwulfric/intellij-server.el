@@ -59,6 +59,10 @@ state. `intellij-server.el` is shared; `intellij-server-eglot.el` and
 Requires Emacs 30.1+, `curl` and `unzip`, on macOS, Linux or Windows (x86_64
 or ARM64).
 
+### With use-package
+
+`use-package` and its `:vc` keyword come with Emacs 30:
+
 ```elisp
 (use-package intellij-server
   :vc (:url "https://github.com/wwulfric/intellij-server.el")
@@ -67,7 +71,32 @@ or ARM64).
   (intellij-server-directory (locate-user-emacs-file "intellij-server/")))
 ```
 
-Then download the server (about 370 MB; an interrupted download resumes):
+### From a Git checkout
+
+Clone the repository, or add it as a submodule of a configuration kept in
+Git:
+
+```sh
+git clone https://github.com/wwulfric/intellij-server.el ~/.emacs.d/lisp/intellij-server
+# or, in your configuration's repository:
+git submodule add https://github.com/wwulfric/intellij-server.el lisp/intellij-server
+```
+
+Then put it on the `load-path` and load the adapter for your client (see
+[Use](#use)):
+
+```elisp
+(add-to-list 'load-path (locate-user-emacs-file "lisp/intellij-server"))
+(setq intellij-server-directory (locate-user-emacs-file "intellij-server/"))
+(require 'intellij-server-lsp-bridge)   ; or 'intellij-server-eglot
+```
+
+Keep the checkout whole: the proxy is compiled from `proxy/` next to the
+Lisp files.  Update with `git pull`, or `git submodule update --remote`.
+
+### The server
+
+However the package is installed, download the server (about 370 MB; an interrupted download resumes):
 
 ```
 M-x intellij-server-install
