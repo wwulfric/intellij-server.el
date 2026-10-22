@@ -1,5 +1,12 @@
 ;;; intellij-server-tests.el --- IntelliJ language server wrapper tests -*- lexical-binding: t; -*-
 
+;; Copyright (c) 2026 haidao
+;; SPDX-License-Identifier: MIT
+
+;; This file is not part of GNU Emacs.
+;;
+;; Licensed under the MIT License; see the LICENSE file that comes with it.
+
 ;; Run: emacs -Q --batch -L . -l test/intellij-server-tests.el -f ert-run-tests-batch-and-exit
 ;; The proxy test needs the server's bundled JDK (M-x intellij-server-install)
 ;; and python3, which runs a fake server.  Set INTELLIJ_SERVER_DIRECTORY when

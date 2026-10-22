@@ -1,7 +1,14 @@
 ;;; intellij-server-lsp-bridge.el --- The IntelliJ language server in lsp-bridge -*- lexical-binding: t; -*-
 
+;; Copyright (c) 2026 haidao
+
 ;; Author: haidao <wwulfric@gmail.com>
 ;; URL: https://github.com/wwulfric/intellij-server.el
+;; SPDX-License-Identifier: MIT
+
+;; This file is not part of GNU Emacs.
+;;
+;; Licensed under the MIT License; see the LICENSE file that comes with it.
 
 ;;; Commentary:
 ;; Serves Java and Kotlin files with the IntelliJ server through lsp-bridge

@@ -1,8 +1,15 @@
 ;;; intellij-server-eglot.el --- The IntelliJ language server in eglot -*- lexical-binding: t; -*-
 
+;; Copyright (c) 2026 haidao
+
 ;; Author: haidao <wwulfric@gmail.com>
 ;; URL: https://github.com/wwulfric/intellij-server.el
 ;; Package-Requires: ((emacs "30.1") (eglot "1.17"))
+;; SPDX-License-Identifier: MIT
+
+;; This file is not part of GNU Emacs.
+;;
+;; Licensed under the MIT License; see the LICENSE file that comes with it.
 
 ;;; Commentary:
 ;; Eglot starts the server behind its proxy, which already handles the

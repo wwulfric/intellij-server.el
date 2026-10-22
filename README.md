@@ -161,3 +161,7 @@ emacs -Q --batch -L . -l test/intellij-server-tests.el -f ert-run-tests-batch-an
 The proxy test runs it against a fake server; it needs an installed server's
 JDK (set `INTELLIJ_SERVER_DIRECTORY` if it is not in the default place) and
 `python3`, and is skipped otherwise.
+
+## License
+
+MIT; see [LICENSE](LICENSE).
