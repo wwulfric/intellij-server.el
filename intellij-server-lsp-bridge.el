@@ -1,5 +1,8 @@
 ;;; intellij-server-lsp-bridge.el --- The IntelliJ language server in lsp-bridge -*- lexical-binding: t; -*-
 
+;; Author: haidao <wwulfric@gmail.com>
+;; URL: https://github.com/wwulfric/intellij-server.el
+
 ;;; Commentary:
 ;; Serves Java and Kotlin files with the IntelliJ server through lsp-bridge
 ;; once it is installed, in place of jdtls and kotlin-language-server.

@@ -1,5 +1,7 @@
 ;;; intellij-server.el --- JetBrains' IntelliJ language server for Emacs -*- lexical-binding: t; -*-
 
+;; Author: haidao <wwulfric@gmail.com>
+;; URL: https://github.com/wwulfric/intellij-server.el
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "30.1"))
 ;; Keywords: languages, tools, java, kotlin

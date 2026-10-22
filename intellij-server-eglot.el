@@ -1,5 +1,9 @@
 ;;; intellij-server-eglot.el --- The IntelliJ language server in eglot -*- lexical-binding: t; -*-
 
+;; Author: haidao <wwulfric@gmail.com>
+;; URL: https://github.com/wwulfric/intellij-server.el
+;; Package-Requires: ((emacs "30.1") (eglot "1.17"))
+
 ;;; Commentary:
 ;; Eglot starts the server behind its proxy, which already handles the
 ;; launch, settings and library sources.  This adds what needs eglot itself:
