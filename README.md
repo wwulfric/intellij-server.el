@@ -71,19 +71,10 @@ or ARM64).
   (intellij-server-directory (locate-user-emacs-file "intellij-server/")))
 ```
 
-### From a Git checkout
+### Manually
 
-Clone the repository, or add it as a submodule of a configuration kept in
-Git:
-
-```sh
-git clone https://github.com/wwulfric/intellij-server.el ~/.emacs.d/lisp/intellij-server
-# or, in your configuration's repository:
-git submodule add https://github.com/wwulfric/intellij-server.el lisp/intellij-server
-```
-
-Then put it on the `load-path` and load the adapter for your client (see
-[Use](#use)):
+With the repository in, say, `~/.emacs.d/lisp/intellij-server`, put it on the
+`load-path` and load the adapter for your client (see [Use](#use)):
 
 ```elisp
 (add-to-list 'load-path (locate-user-emacs-file "lisp/intellij-server"))
@@ -91,8 +82,7 @@ Then put it on the `load-path` and load the adapter for your client (see
 (require 'intellij-server-lsp-bridge)   ; or 'intellij-server-eglot
 ```
 
-Keep the checkout whole: the proxy is compiled from `proxy/` next to the
-Lisp files.  Update with `git pull`, or `git submodule update --remote`.
+Keep `proxy/` next to the Lisp files: the proxy is compiled from it.
 
 ### The server
 
