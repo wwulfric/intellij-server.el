@@ -12,11 +12,18 @@
 ;; with `intellij/*' messages and names library sources with `jar:' and
 ;; `jrt:' URIs that only it can read.
 ;;
-;; This file is the client-agnostic half: it downloads the server, builds
-;; the command that starts it (the EULA hash, persistent index directories,
-;; the heap), finds the project root, computes `initializationOptions' and
-;; answers configuration and the server's own questions.  The eglot and
-;; lsp-bridge adapters connect it to a client:
+;; The protocol-level half is a proxy, proxy/IntellijServerProxy.java,
+;; that clients start in place of the server.  It runs on the Java runtime
+;; bundled with the server, starts the server (the EULA hash, persistent
+;; index directories, the heap), answers its flat settings, pins the
+;; project SDK and turns library sources into files.  Any LSP client can
+;; use it as it is.
+;;
+;; This file installs the server, compiles the proxy and builds the
+;; command, finds the project root and computes `initializationOptions';
+;; it also shows the server's own questions, build log and license state,
+;; which need the editor.  The eglot and lsp-bridge adapters connect those
+;; to a client:
 ;;
 ;;   (require 'intellij-server-eglot)      ; M-x eglot in Java buffers
 ;;   (require 'intellij-server-lsp-bridge) ; lsp-bridge's Java servers
@@ -104,47 +111,13 @@ of (DIRECTORY . TOOL), TOOL being \"gradle\", \"maven\", \"bazel\" or
 
 ;;;; Settings
 
-(defcustom intellij-server-settings
-  '(("jetbrains.kotlin.hints.parameters" . t)
-    ("jetbrains.kotlin.hints.parameters.compiled" . t)
-    ("jetbrains.kotlin.hints.parameters.excluded" . :json-false)
-    ("jetbrains.kotlin.hints.parameters.context" . :json-false)
-    ("jetbrains.kotlin.hints.type.property" . t)
-    ("jetbrains.kotlin.hints.type.variable" . t)
-    ("jetbrains.kotlin.hints.type.function.return" . t)
-    ("jetbrains.kotlin.hints.type.function.parameter" . t)
-    ("jetbrains.kotlin.hints.lambda.return" . t)
-    ("jetbrains.kotlin.hints.lambda.receivers.parameters" . t)
-    ("jetbrains.kotlin.hints.value.ranges" . t)
-    ("jetbrains.kotlin.hints.value.kotlin.time" . t)
-    ("jetbrains.kotlin.hints.call.chains" . :json-false)
-    ;; The spaces and the odd "settings." are the server's own spelling.
-    ("jetbrains.java.hints.settings.method parameter" . t)
-    ("jetbrains.java.hints.types.local variable" . t)
-    ("jetbrains.java.hints.collapse complex types" . t)
-    ("jetbrains.java.hints.types.call chain" . t))
-  "Workspace settings, as flat dotted keys the way the server reads them.
-Values are JSON: t, :json-false, numbers or strings.  Without an
-answer the server turns every inlay hint category off."
+(defcustom intellij-server-settings nil
+  "Workspace settings over the proxy's defaults, as flat dotted keys.
+For example ((\"jetbrains.kotlin.hints.parameters\" . :json-false)).
+Values are JSON: t, :json-false, numbers or strings.  The proxy turns
+every inlay hint category on but call chains and a few rarer ones; see
+DEFAULT_SETTINGS in proxy/IntellijServerProxy.java."
   :type '(alist :key-type string :value-type sexp))
-
-(defun intellij-server-configuration (section &optional settings)
-  "Answer the server's request for configuration SECTION.
-SETTINGS defaults to `intellij-server-settings'.  Keys are flat, so a
-section that names no key collects the keys below it into an object.
-Returns a hash table for an object and nil, JSON null, when nothing
-matches."
-  (let ((settings (or settings intellij-server-settings)))
-    (cond
-     ((or (null section) (string-empty-p section))
-      (intellij-server--object settings))
-     ((assoc section settings) (cdr (assoc section settings)))
-     (t
-      (let* ((prefix (concat section "."))
-             (nested (cl-loop for (key . value) in settings
-                              when (string-prefix-p prefix key)
-                              collect (cons (substring key (length prefix)) value))))
-        (and nested (intellij-server--object nested)))))))
 
 (defun intellij-server--object (alist)
   "Return ALIST of string keys as a hash table, which encodes as an object."
@@ -259,64 +232,61 @@ next call.  With prefix argument FORCE, reinstall the current version."
               (set-file-modes (expand-file-name "bin/intellij-server" target) #o755)
               (with-temp-file (intellij-server--version-file)
                 (insert (intellij-server--release) "\n"))
+              (intellij-server-proxy-classes)
               (message "[intellij-server] Installed %s" (intellij-server--release))))))))))
 
 ;;;; Command
 
-(defun intellij-server-eula-hash ()
-  "Return the hash of the EULA the server needs to start: the first 16
-characters of the SHA-256 of its EULA.txt.  Passing it accepts the EULA."
-  (let ((eula (expand-file-name "EULA.txt" (intellij-server--server-directory))))
-    (when (file-readable-p eula)
-      (with-temp-buffer
-        (set-buffer-multibyte nil)
-        (insert-file-contents-literally eula)
-        (substring (secure-hash 'sha256 (current-buffer)) 0 16)))))
+(defconst intellij-server-proxy-source
+  (expand-file-name "proxy/IntellijServerProxy.java"
+                    (file-name-directory (or load-file-name buffer-file-name)))
+  "Source of the proxy that clients start in place of the server.")
 
 (defun intellij-server-data-directory ()
   "Return where the server keeps its configuration, indexes and logs.
 Without it they would go to the temporary directory and be rebuilt."
   (expand-file-name "data/" intellij-server-directory))
 
-(defun intellij-server--java-home ()
-  (or intellij-server-java-home
-      (let ((home (getenv "JAVA_HOME")))
-        (and home (not (string-empty-p home)) home))
-      (let ((jbr (expand-file-name "jbr/Contents/Home" (intellij-server--server-directory))))
-        (if (file-directory-p jbr) jbr
-          (expand-file-name "jbr" (intellij-server--server-directory))))))
+(defun intellij-server--jbr (program)
+  "Return PROGRAM of the Java runtime bundled with the server."
+  (let ((home (expand-file-name "jbr/Contents/Home" (intellij-server--server-directory))))
+    (unless (file-directory-p home)
+      (setq home (expand-file-name "jbr" (intellij-server--server-directory))))
+    (expand-file-name (concat "bin/" program (if (eq system-type 'windows-nt) ".exe" ""))
+                      home)))
 
-(defun intellij-server-environment ()
-  "Return the server's environment additions, as \"NAME=VALUE\" strings."
-  (let ((data (intellij-server-data-directory)))
-    (dolist (sub '("config" "system" "log"))
-      (make-directory (expand-file-name sub data) t))
-    (list
-     (concat "JAVA_HOME=" (expand-file-name (intellij-server--java-home)))
-     ;; Appended after the server's vmoptions, so the last -Xmx wins.
-     (concat "IJ_JAVA_OPTIONS="
-             (string-join
-              (append (list (concat "-Didea.config.path=" data "config")
-                            (concat "-Didea.system.path=" data "system")
-                            (concat "-Didea.log.path=" data "log")
-                            ;; Name each heap dump instead of leaving one
-                            ;; gigabyte in $HOME that blocks the next.
-                            (concat "-XX:HeapDumpPath=" data "log"))
-                      intellij-server-jvm-args)
-              " "))
-     ;; Validation plugins only slow down the Maven import.
-     "MAVEN_ARGS=-Dcheckstyle.skip=true -Dpmd.skip=true -Dspotbugs.skip=true -Djacoco.skip=true")))
+(defun intellij-server-proxy-classes ()
+  "Return the directory of the compiled proxy, compiling it first if needed.
+The JDK bundled with the server compiles it into a directory named after
+the source's hash, so an edited source is compiled again."
+  (let* ((hash (with-temp-buffer
+                 (insert-file-contents-literally intellij-server-proxy-source)
+                 (secure-hash 'sha1 (current-buffer))))
+         (classes (expand-file-name (format "proxy/%s/" (substring hash 0 12))
+                                    intellij-server-directory)))
+    (unless (file-exists-p (expand-file-name "IntellijServerProxy.class" classes))
+      (make-directory classes t)
+      (with-temp-buffer
+        (unless (zerop (call-process (intellij-server--jbr "javac") nil t nil
+                                     "--release" "21" "-d" classes
+                                     intellij-server-proxy-source))
+          (delete-directory classes t)
+          (error "[intellij-server] Could not compile the proxy: %s" (buffer-string)))))
+    classes))
 
 (defun intellij-server-command ()
-  "Return the command that starts the server over stdio.
-It goes through env(1) to carry `intellij-server-environment', because
-clients start servers with Emacs's own environment."
+  "Return the command that starts the server behind its proxy, over stdio."
   (unless (intellij-server-installed-p)
     (user-error "The IntelliJ server is not installed; run M-x intellij-server-install"))
-  (append (list "env") (intellij-server-environment)
-          (list (intellij-server-executable) "--stdio")
-          (when-let* ((hash (intellij-server-eula-hash)))
-            (list "--eula" hash))))
+  (append (list (intellij-server--jbr "java")
+                ;; The proxy only passes messages along.
+                "-XX:+UseSerialGC" "-XX:TieredStopAtLevel=1" "-Xmx256m"
+                "-cp" (intellij-server-proxy-classes) "IntellijServerProxy"
+                "--server" (directory-file-name (intellij-server--server-directory))
+                "--data" (directory-file-name (intellij-server-data-directory)))
+          (when intellij-server-java-home
+            (list "--java-home" (expand-file-name intellij-server-java-home)))
+          (mapcan (lambda (arg) (list "--jvm-arg" arg)) (copy-sequence intellij-server-jvm-args))))
 
 ;;;; Project root and initialization
 
@@ -351,34 +321,22 @@ FILE's directory."
     (hack-dir-local-variables-non-file-buffer)
     (symbol-value variable)))
 
-(defun intellij-server--build-type (root)
-  (cond ((file-exists-p (expand-file-name "pom.xml" root)) "maven")
-        ((cl-some (lambda (f) (file-exists-p (expand-file-name f root)))
-                  '("settings.gradle" "settings.gradle.kts" "build.gradle" "build.gradle.kts"))
-         "gradle")))
-
 (defun intellij-server--uri (path)
   (concat "file://" (url-hexify-string (directory-file-name (expand-file-name path))
                                        url-path-allowed-chars)))
 
 (defun intellij-server--projects (root)
   "Return the projects to import for ROOT, or nil to let the server decide.
-Without an explicit list, a Maven or Gradle build is pinned to
-$JAVA_HOME, so per-project tools like direnv or sdkman choose its SDK
-instead of the newest JDK the server happens to find."
+Without a list, the proxy pins a Maven or Gradle build to $JAVA_HOME."
   (let ((projects (intellij-server--project-local root 'intellij-server-projects)))
-    (when (functionp projects) (setq projects (funcall projects root)))
-    (or projects
-        (when-let* ((home (getenv "JAVA_HOME"))
-                    ((file-exists-p (expand-file-name "release" home)))
-                    (type (intellij-server--build-type root)))
-          (list (list :type type :path root :javaHome home))))))
+    (if (functionp projects) (funcall projects root) projects)))
 
 (defun intellij-server-initialization-options (root)
   "Return the server's `initializationOptions' for project ROOT."
   (let ((projects (intellij-server--projects root))
         (tools (intellij-server--project-local root 'intellij-server-build-tools))
-        (sdk (intellij-server--project-local root 'intellij-server-default-sdk)))
+        (sdk (intellij-server--project-local root 'intellij-server-default-sdk))
+        (settings (intellij-server--project-local root 'intellij-server-settings)))
     (append
      ;; The server's protocol additions and actions resolved only when run,
      ;; as the VS Code extension asks for.
@@ -405,35 +363,41 @@ instead of the newest JDK the server happens to find."
               (mapcar (lambda (entry) (cons (intellij-server--uri (car entry)) (cdr entry)))
                       tools))))
      (when sdk
-       (list :defaultSdk (directory-file-name (expand-file-name sdk)))))))
+       (list :defaultSdk (directory-file-name (expand-file-name sdk))))
+     ;; For the proxy, which answers the server's settings requests.
+     (when settings
+       (list :settings (intellij-server--object settings))))))
 
 ;;;; Library sources
 
-(defun intellij-server-virtual-uri-p (uri)
-  "Return non-nil if URI names a library or JDK source only the server reads.
-Those are `jar:file:///…!/entry' and `jrt:/module/…' URIs."
-  (and (stringp uri) (string-match-p "\\`\\(jar\\|jrt\\):" uri)))
+(defun intellij-server-source-root (file)
+  "Return the root of the project whose library source FILE is, if it is one.
+The proxy writes the sources a project reads under the data directory,
+in a folder whose .root file names the project."
+  (when-let* ((sources (expand-file-name "sources/" (intellij-server-data-directory)))
+              ((file-in-directory-p file sources))
+              (folder (locate-dominating-file file ".root"))
+              (root (with-temp-buffer
+                      (insert-file-contents (expand-file-name ".root" folder))
+                      (string-trim (buffer-string))))
+              ((file-directory-p root)))
+    (file-name-as-directory root)))
 
-(defun intellij-server-virtual-entry (uri)
-  "Return the entry URI names inside its archive, with a source extension.
-The server decompiles a .class entry to Java."
-  (let ((entry (cond ((string-match "!/\\(.*\\)\\'" uri) (match-string 1 uri))
-                     ((string-match "\\`jrt:/+\\(.*\\)\\'" uri) (match-string 1 uri))
-                     (t uri))))
-    (if (string-suffix-p ".class" entry)
-        (concat (file-name-sans-extension entry) ".java")
-      entry)))
+(defun intellij-server-source-project (directory)
+  "Return the project of the library source in DIRECTORY, if it is one.
+Found that way, the project's language server goes on serving the
+source, so navigation works in it.  For `project-find-functions'."
+  (when-let* ((root (intellij-server-source-root directory)))
+    (project-current nil root)))
 
-(defun intellij-server-source-mode ()
-  "Turn on the major mode of the source a library entry decompiles to.
-A decompiled .class is Java, in whichever mode visits .java files."
-  (let ((mode (assoc-default (intellij-server-virtual-entry (or buffer-file-name ""))
-                             auto-mode-alist #'string-match)))
-    (when (fboundp 'major-mode-remap) (setq mode (major-mode-remap mode)))
-    (if (functionp mode) (funcall mode) (fundamental-mode))))
+(add-hook 'project-find-functions #'intellij-server-source-project -50)
 
-;; Library classes are named by their archive entry, Foo.class.
-(add-to-list 'auto-mode-alist '("\\`jar:.*\\.class\\'" . intellij-server-source-mode))
+(defun intellij-server--source-read-only ()
+  "Visit library sources read-only: they are the server's copy."
+  (when (and buffer-file-name (intellij-server-source-root buffer-file-name))
+    (setq buffer-read-only t)))
+
+(add-hook 'find-file-hook #'intellij-server--source-read-only)
 
 ;;;; The server's questions
 
@@ -576,8 +540,7 @@ Login signs in to a JetBrains Account in the browser.  The server finds
 an account already signed in through the IDE or Toolbox by itself."
   (interactive (list (completing-read "License: " '("status" "login" "activate" "trial")
                                       nil t nil nil "status")))
-  (let ((default-directory (expand-file-name "~/"))
-        (process-environment (append (intellij-server-environment) process-environment)))
+  (let ((default-directory (expand-file-name "~/")))
     (unless (intellij-server-installed-p)
       (user-error "The IntelliJ server is not installed; run M-x intellij-server-install"))
     (make-comint-in-buffer "intellij-server-license" "*intellij-server license*"
@@ -590,7 +553,7 @@ an account already signed in through the IDE or Toolbox by itself."
 (defun intellij-server-log ()
   "Open the server's own log."
   (interactive)
-  (find-file-read-only (expand-file-name "log/idea.log" (intellij-server-data-directory)))
+  (find-file-read-only (expand-file-name "log/intellij-server.log" (intellij-server-data-directory)))
   (goto-char (point-max)))
 
 (provide 'intellij-server)

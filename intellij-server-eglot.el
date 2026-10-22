@@ -1,16 +1,13 @@
 ;;; intellij-server-eglot.el --- The IntelliJ language server in eglot -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; Makes eglot the IDE the IntelliJ server expects:
+;; Eglot starts the server behind its proxy, which already handles the
+;; launch, settings and library sources.  This adds what needs eglot itself:
 ;;
-;; - flat, dotted settings for `workspace/configuration', without which
-;;   the server turns every inlay hint off;
 ;; - completion items whose insertion is the server's own command, with
 ;;   their imports, parentheses and caret placement;
 ;; - the `intellij/*' questions refactorings ask mid-way, its build log and
-;;   its license state;
-;; - library and JDK sources (`jar:' and `jrt:' URIs) as read-only buffers
-;;   the server decompiles, which navigation keeps working in.
+;;   its license state.
 ;;
 ;;   (require 'intellij-server-eglot)
 ;;   (add-hook 'java-ts-mode-hook #'eglot-ensure)
@@ -42,16 +39,6 @@
 (cl-defmethod eglot-client-capabilities ((_server eglot-intellij-server))
   ;; The license state is ours to show, as the VS Code client declares.
   (plist-put (cl-call-next-method) :experimental '(:licensingUi t)))
-
-(cl-defmethod eglot-handle-request
-  ((server eglot-intellij-server) (_method (eql workspace/configuration)) &key items)
-  "Answer from flat dotted keys; eglot would look for nested sections."
-  (let ((settings (intellij-server--project-local (intellij-server-eglot--root server)
-                                                  'intellij-server-settings)))
-    (apply #'vector
-           (mapcar (lambda (item)
-                     (intellij-server-configuration (plist-get item :section) settings))
-                   items))))
 
 ;;;; Completion
 
@@ -179,78 +166,6 @@ show parameter hints, complete."
 (cl-defmethod eglot-handle-notification
   ((_server eglot-intellij-server) (_method (eql jetbrains/licensing/state)) &rest params)
   (intellij-server-license-state params))
-
-;;;; Library sources
-
-(defun intellij-server-eglot--servers ()
-  "Return the running IntelliJ servers, the current buffer's first."
-  (let ((current (ignore-errors (eglot-current-server)))
-        servers)
-    (maphash (lambda (_ list)
-               (dolist (server list)
-                 (when (cl-typep server 'eglot-intellij-server) (push server servers))))
-             eglot--servers-by-project)
-    (if (memq current servers) (cons current (delq current servers)) servers)))
-
-(defun intellij-server-eglot--decompile (uri)
-  "Return the source of library URI and the server that read it.
-A server only reads the archives of its own projects, so each is asked."
-  (or (cl-loop for server in (intellij-server-eglot--servers)
-               for result = (ignore-errors
-                              (jsonrpc-request server :workspace/executeCommand
-                                               `(:command "decompile" :arguments [,uri])
-                                               :timeout 15))
-               for text = (if (stringp result) result
-                            (or (plist-get result :code) (plist-get result :text)))
-               when text return (cons text server))
-      (error "No IntelliJ server could read %s (indexing may not be done)" uri)))
-
-(defvar-local intellij-server-eglot--source-root nil
-  "Project root of the server that decompiled this library source.")
-(put 'intellij-server-eglot--source-root 'permanent-local t)
-
-(defun intellij-server-eglot--file-handler (operation &rest args)
-  "Serve `jar:' and `jrt:' names as read-only files the server decompiles.
-Their buffers join the server of the project the source belongs to."
-  (pcase operation
-    ((or 'expand-file-name 'file-truename 'substitute-in-file-name)
-     (car args))
-    ((or 'file-exists-p 'file-readable-p) t)
-    ((or 'file-writable-p 'file-directory-p 'file-remote-p 'file-symlink-p
-         'file-locked-p 'vc-registered 'file-name-case-insensitive-p 'file-executable-p
-         'file-newer-than-file-p 'make-auto-save-file-name 'unhandled-file-name-directory)
-     nil)
-    ((or 'lock-file 'unlock-file 'set-visited-file-modtime) nil)
-    ('verify-visited-file-modtime t)
-    ('file-attributes nil)
-    ('insert-file-contents
-     (pcase-let* ((`(,file ,visit . ,_) args)
-                  (`(,text . ,server) (intellij-server-eglot--decompile file)))
-       (save-excursion (insert text))
-       (when visit
-         (setq buffer-file-name file
-               intellij-server-eglot--source-root
-               (file-name-as-directory (intellij-server-eglot--root server)))
-         (set-buffer-modified-p nil))
-       (list file (length text))))
-    (_ (let ((inhibit-file-name-handlers
-              (cons #'intellij-server-eglot--file-handler
-                    (and (eq inhibit-file-name-operation operation)
-                         inhibit-file-name-handlers)))
-             (inhibit-file-name-operation operation))
-         (apply operation args)))))
-
-(add-to-list 'file-name-handler-alist
-             '("\\`\\(jar\\|jrt\\):" . intellij-server-eglot--file-handler))
-
-(defun intellij-server-eglot--enter-source-project ()
-  "Give a library source the directory of the project that reads it.
-Visiting sets it to the archive's; this runs before eglot looks up the
-project's server for the new major mode."
-  (when intellij-server-eglot--source-root
-    (setq default-directory intellij-server-eglot--source-root)))
-
-(add-hook 'after-change-major-mode-hook #'intellij-server-eglot--enter-source-project -50)
 
 ;;;; Registration
 

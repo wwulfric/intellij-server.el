@@ -3,16 +3,16 @@
 ;;; Commentary:
 ;; Serves Java and Kotlin files with the IntelliJ server through lsp-bridge
 ;; once it is installed, in place of jdtls and kotlin-language-server.
-;; Each project gets a generated server config: the command with its EULA
-;; hash and environment, `initializationOptions' and the flat settings,
-;; plus the lsp-bridge features the server relies on:
+;; Each project gets a generated server config: the command that starts
+;; the server behind its proxy, `initializationOptions', plus the
+;; lsp-bridge features the server relies on:
 ;;
 ;; - "completionItemCommands": the items whose apply command inserts the
 ;;   completion, with its imports and caret;
-;; - "decompileCommand": library and JDK sources behind `jar:' and `jrt:'
-;;   URIs;
 ;; - "emacsHandlers": the `intellij/*' questions refactorings ask, the
 ;;   build log and the license state.
+;;
+;; Library sources the proxy writes are opened on their project's server.
 ;;
 ;;   (require 'intellij-server-lsp-bridge)
 
@@ -50,13 +50,10 @@ after `lsp-bridge-restart-process'."
           (list :name "intellij-server"
                 :languageId "java"
                 :command (vconcat (intellij-server-command))
-                :settings (intellij-server--object
-                           (intellij-server--project-local root 'intellij-server-settings))
                 :initializationOptions (intellij-server-initialization-options root)
                 ;; The license state is ours to show, as the VS Code client declares.
                 :capabilities '(:experimental (:licensingUi t))
                 :completionItemCommands ["^jetbrains\\..+\\.completion\\.apply$"]
-                :decompileCommand "decompile"
                 :emacsHandlers (intellij-server--object
                                 (mapcar (lambda (h) (cons (car h) (symbol-name (cdr h))))
                                         intellij-server-lsp-bridge--handlers)))))
@@ -77,6 +74,12 @@ whichever buffer is current when its process gets to it."
   (if (intellij-server-lsp-bridge--serves-p filename)
       (intellij-server-lsp-bridge-config project-path filename)
     (funcall original project-path filename)))
+
+(defun intellij-server-lsp-bridge--project-path (original filename)
+  "Put a library source FILENAME in the project that read it, else call ORIGINAL."
+  (if-let* ((root (intellij-server-source-root filename)))
+      (directory-file-name root)
+    (funcall original filename)))
 
 (defun intellij-server-lsp-bridge--language-id (original project-path file-path server-name extension)
   "Tell Kotlin from Java to the one server that reads both."
@@ -136,6 +139,8 @@ show parameter hints, complete."
               #'intellij-server-lsp-bridge--single-server)
   (advice-add 'lsp-bridge--get-language-id-func :around
               #'intellij-server-lsp-bridge--language-id)
+  (advice-add 'lsp-bridge--get-project-path-func :around
+              #'intellij-server-lsp-bridge--project-path)
   ;; lsp-bridge only knows `kotlin-mode'.
   (unless (assq 'kotlin-ts-mode lsp-bridge-single-lang-server-mode-list)
     (add-to-list 'lsp-bridge-single-lang-server-mode-list
@@ -147,7 +152,9 @@ show parameter hints, complete."
   (advice-remove 'lsp-bridge--get-single-lang-server-func
                  #'intellij-server-lsp-bridge--single-server)
   (advice-remove 'lsp-bridge--get-language-id-func
-                 #'intellij-server-lsp-bridge--language-id))
+                 #'intellij-server-lsp-bridge--language-id)
+  (advice-remove 'lsp-bridge--get-project-path-func
+                 #'intellij-server-lsp-bridge--project-path))
 
 (intellij-server-lsp-bridge-enable)
 
