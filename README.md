@@ -30,6 +30,31 @@ or **All Products Pack** license, or the 30-day trial.
 - Maven, Gradle, Bazel and `.idea` projects, with the import log in
   `M-x intellij-server-build-log`
 
+## Compared with jdtls
+
+[jdtls](https://github.com/eclipse-jdtls/eclipse.jdt.ls), Eclipse's Java
+language server, is what most Emacs clients use for Java. The two differ
+mostly in the engine behind them:
+
+| | IntelliJ server | jdtls |
+|---|---|---|
+| Engine | IntelliJ IDEA's | Eclipse JDT's |
+| Kotlin | Same server, same project as the Java code | Not supported; kotlin-language-server is a separate, much more limited server |
+| Diagnostics | IntelliJ's compiler checks and inspections | The Eclipse compiler's errors and warnings |
+| Refactorings and quick fixes | IntelliJ's, including the ones that ask how to go on (where to initialize an extracted field, whether to remove an inlined method) | Eclipse's code actions |
+| Formatting | IntelliJ's code style, set with `ij_java_*` / `ij_kotlin_*` in `.editorconfig`: the same result as teammates in the IDE | The Eclipse formatter, set with an Eclipse formatter profile |
+| Projects | Maven, Gradle, Bazel and IntelliJ (`.idea`) projects | Maven and Gradle, plus Eclipse projects |
+| Spring, Lombok | Bundled | Lombok with a `-javaagent`; Spring through a separate server |
+| Library sources | Sources jars when the build has them, decompiled classes otherwise | The same, through `jdt://` URIs |
+| Debugging, running tests | Not provided by this package yet | java-debug and vscode-java-test extensions |
+| License | IntelliJ IDEA Ultimate (or All Products Pack) subscription or trial | Free, open source |
+| Weight | About 1.2 GB installed, a full IntelliJ backend; heap capped at 2 GB by default | About 50 MB installed |
+| Maturity | Version 1.0 from late 2026, written for VS Code first | Many years old, used by many editors |
+
+Pick the IntelliJ server for Kotlin, for IntelliJ's inspections and
+refactorings, or to format like a team that uses the IDE. Keep jdtls when the
+license, the memory or debugging matter more.
+
 ## How it works
 
 ```
