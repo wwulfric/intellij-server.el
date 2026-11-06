@@ -199,7 +199,7 @@ mise or direnv choose its SDK.
 ## Tests
 
 ```sh
-emacs -Q --batch -L . -l test/intellij-server-tests.el -f ert-run-tests-batch-and-exit
+make test
 ```
 
 The proxy test runs it against a fake server; it needs an installed server's

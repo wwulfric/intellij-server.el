@@ -31,6 +31,28 @@
 
 ;;;; Install and launch
 
+(ert-deftest intellij-server-install-handles-platform-launchers ()
+  (dolist (platform '(darwin windows-nt))
+    (intellij-server-test-with-directory dir
+      (let* ((system-type platform)
+             (intellij-server-directory dir)
+             (intellij-server-program nil)
+             (launcher (if (eq platform 'windows-nt)
+                           "intellij-server.exe" "intellij-server")))
+        (cl-letf (((symbol-function 'convert-standard-filename) #'identity)
+                  ((symbol-function 'intellij-server--run)
+                   (lambda (name _program args done)
+                     (if (equal name "download")
+                         (write-region "archive" nil (nth (1+ (cl-position "-o" args :test #'equal)) args))
+                       (intellij-server-test-touch
+                        dir (concat "extension/server/bin/" launcher)))
+                     (funcall done)))
+                  ((symbol-function 'intellij-server-proxy-classes) #'ignore))
+          (intellij-server-install t)
+          (should (file-exists-p (intellij-server-executable)))
+          (should (file-exists-p (intellij-server--version-file)))
+          (should-not (file-directory-p (expand-file-name "extension" dir))))))))
+
 (ert-deftest intellij-server-installed-p-checks-release ()
   (intellij-server-test-with-directory dir
     (let ((intellij-server-directory dir)
