@@ -143,8 +143,33 @@ show parameter hints, complete."
 
 ;;;; Registration
 
+(defvar lsp-bridge-server-config-features)
+
+(defun intellij-server-lsp-bridge--check-compatibility ()
+  "Reject an incompatible bridge before installing any advice or mode entries."
+  (let (missing)
+    (dolist (feature '(completion-item-commands emacs-handlers show-document insert-replace-edit))
+      (unless (memq feature (bound-and-true-p lsp-bridge-server-config-features))
+        (push (symbol-name feature) missing)))
+    ;; These internal entry points still need advice.  Check their calling
+    ;; convention as well as their presence so upstream changes fail early.
+    (dolist (entry '((lsp-bridge--get-single-lang-server-func . 2)
+                     (lsp-bridge--get-language-id-func . 4)
+                     (lsp-bridge--get-project-path-func . 1)
+                     (lsp-bridge-execute-command . 2)))
+      (let* ((function (car entry))
+             (arity (and (fboundp function) (func-arity function)))
+             (count (cdr entry)))
+        (unless (and arity (<= (car arity) count)
+                     (or (eq (cdr arity) 'many) (>= (cdr arity) count)))
+          (push (format "%s/%d" function count) missing))))
+    (when missing
+      (user-error "Incompatible lsp-bridge (missing: %s). Update wwulfric/lsp-bridge, use its Lisp and Python from the same checkout, and restart Emacs"
+                  (string-join (nreverse missing) ", ")))))
+
 (defun intellij-server-lsp-bridge-enable ()
   "Serve `intellij-server-lsp-bridge-extensions' with the IntelliJ server."
+  (intellij-server-lsp-bridge--check-compatibility)
   (advice-add 'lsp-bridge--get-single-lang-server-func :around
               #'intellij-server-lsp-bridge--single-server)
   (advice-add 'lsp-bridge--get-language-id-func :around

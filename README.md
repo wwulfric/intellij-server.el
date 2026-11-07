@@ -150,6 +150,12 @@ not upstream yet — `emacsHandlers`, `completionItemCommands`,
 `window/showDocument` and `InsertReplaceEdit` completions — available in
 [wwulfric/lsp-bridge](https://github.com/wwulfric/lsp-bridge).
 
+The adapter checks `lsp-bridge-server-config-features` and the entry points it
+advises before registering anything. Missing capabilities or changed function
+signatures produce an actionable error at load/enable time. Use the Lisp and
+Python backend from the same updated checkout, and restart Emacs after updating.
+The core package and Eglot adapter do not require lsp-bridge.
+
 ### Any other LSP client
 
 Start the command `(intellij-server-command)` returns. Everything the proxy
@@ -199,7 +205,9 @@ mise or direnv choose its SDK.
 ## Tests
 
 ```sh
-make test
+make test                   # core plus lsp-bridge adapter
+make test-core              # core/Eglot only; no lsp-bridge needed
+make test-lsp-bridge DEPS=.. # lsp-bridge and its dependencies in sibling directories
 ```
 
 The proxy test runs it against a fake server; it needs an installed server's
